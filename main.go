@@ -17,10 +17,12 @@ import (
 
 var (
 	useAbsoluteFilenames = false
+	reverseGeocode       = false
 )
 
 type Photo struct {
 	Filename  string
+	Name      string
 	Timestamp time.Time
 	Lon       float64
 	Lat       float64
@@ -44,7 +46,7 @@ func Tell(format string, a ...interface{}) (n int, err error) {
 	return fmt.Fprintf(os.Stderr, format+"\n", a...)
 }
 
-func PlacemarkName(filename string) string {
+func PlacemarkFilename(filename string) string {
 	if useAbsoluteFilenames {
 		return filename
 	}
@@ -67,8 +69,9 @@ func ReadPhotosFromList(reader *bufio.Reader) (photos Photos, err error) {
 		}
 
 		photo := &Photo{
-			Filename: PlacemarkName(filename),
+			Filename: PlacemarkFilename(filename),
 		}
+		photo.Name = photo.Filename
 
 		photoFile, err := os.Open(filename)
 		if err != nil {
@@ -93,6 +96,18 @@ func ReadPhotosFromList(reader *bufio.Reader) (photos Photos, err error) {
 			continue
 		}
 
+		// gecoding could be done in parallel, but that is forbidden by the nominatim
+		// terms of use
+		if reverseGeocode {
+			name, gerr := getNominatimName(photo)
+			if gerr != nil {
+				return photos, gerr
+			}
+			if name != "" {
+				photo.Name = name
+			}
+		}
+
 		photos = append(photos, photo)
 	}
 	return
@@ -106,8 +121,10 @@ func WriteKML(w io.Writer, photos Photos) {
 	// single photos
 	for _, photo := range photos {
 		fmt.Fprintf(w, "<Placemark><name>")
+		xml.EscapeText(w, []byte(photo.Name))
+		fmt.Fprintf(w, "</name><description>")
 		xml.EscapeText(w, []byte(photo.Filename))
-		fmt.Fprintf(w, "</name><TimeStamp><when>%s</when></TimeStamp><Point><coordinates>%f,%f</coordinates></Point></Placemark>", photo.Timestamp.Format(time.RFC3339), photo.Lon, photo.Lat)
+		fmt.Fprintf(w, "</description><TimeStamp><when>%s</when></TimeStamp><Point><coordinates>%f,%f</coordinates></Point></Placemark>", photo.Timestamp.Format(time.RFC3339), photo.Lon, photo.Lat)
 	}
 
 	// path consisting of all photos
@@ -122,6 +139,7 @@ func WriteKML(w io.Writer, photos Photos) {
 
 func init() {
 	flag.BoolVar(&useAbsoluteFilenames, "a", false, "Use the absolute filenames of the photos for the name of the placemarks. Default is using just the basename.")
+	flag.BoolVar(&reverseGeocode, "r", false, "Use the nominatim.openstreetmap.org reverse geocoding service to get meaningful names for the placemarks. See the terms of use of the service before extensive use of this functionality.")
 }
 
 func Usage() {
