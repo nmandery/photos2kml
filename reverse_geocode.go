@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -29,6 +30,13 @@ func getJson(url string, target interface{}) error {
 		return err
 	}
 	defer r.Body.Close()
+
+	if r.StatusCode >= 400 {
+		return errors.New(fmt.Sprintf("upstream server returned HTTP status %d for %s: %s",
+			r.StatusCode,
+			url,
+			http.StatusText(r.StatusCode)))
+	}
 
 	return json.NewDecoder(r.Body).Decode(target)
 }
